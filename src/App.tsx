@@ -116,12 +116,19 @@ export default function App() {
   const fetchRecords = async () => {
     try {
       const res = await fetch('/api/records');
-      if (!res.ok) throw new Error('Gagal mengambil data');
       const data = await res.json();
+      
+      if (!res.ok) {
+        throw new Error(data.error || 'Gagal mengambil data');
+      }
+      
       setRecords(data);
-    } catch (err) {
-      console.error(err);
-      alert('Gagal mengambil data terbaru. Silakan coba lagi.');
+    } catch (err: any) {
+      console.error('Fetch error:', err);
+      // Only alert if it's a real error, not just an empty initial state
+      if (err.message !== 'Unexpected end of JSON input') {
+        alert(`Kesalahan: ${err.message}`);
+      }
     } finally {
       setLoading(false);
     }

@@ -18,8 +18,19 @@ async function startServer() {
 
   const GAS_URL = process.env.GAS_WEB_APP_URL || process.env.VITE_GAS_WEB_APP_URL;
 
+  if (!GAS_URL) {
+    console.error("CRITICAL: GAS_WEB_APP_URL is not set in environment variables.");
+  } else if (GAS_URL.includes("/edit")) {
+    console.error("CRITICAL: GAS_WEB_APP_URL looks like an editor URL (ends in /edit). It MUST be a Web App URL (ends in /exec).");
+  }
+
   app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", mode: "Google Sheets Full" });
+    res.json({ 
+      status: "ok", 
+      mode: "Google Sheets Full",
+      gas_configured: !!GAS_URL,
+      gas_valid: GAS_URL ? GAS_URL.includes("/exec") : false
+    });
   });
 
   // Broadcast to all clients
@@ -34,22 +45,31 @@ async function startServer() {
   // API Routes (Proxying to Google Sheets)
   app.get("/api/records", async (req, res) => {
     if (!GAS_URL) {
-      console.warn("GAS_WEB_APP_URL is not configured");
-      return res.json([]);
+      return res.status(500).json({ error: "GAS_WEB_APP_URL belum dikonfigurasi di Environment Variables." });
     }
+    
+    if (GAS_URL.includes("/edit")) {
+      return res.status(500).json({ error: "URL Google Apps Script salah. Gunakan URL 'Web App' (akhiran /exec), bukan URL editor (akhiran /edit)." });
+    }
+
     try {
-      console.log("Fetching records from GAS...");
-      const response = await fetch(GAS_URL);
+      console.log("Fetching records from GAS:", GAS_URL);
+      const response = await fetch(GAS_URL, {
+        method: "GET",
+        headers: { "Accept": "application/json" }
+      });
+      
       if (!response.ok) {
         const errorText = await response.text();
         console.error("GAS Fetch Error:", response.status, errorText);
-        throw new Error(`GAS returned ${response.status}`);
+        return res.status(500).json({ error: `Google Sheets mengembalikan error ${response.status}. Pastikan script sudah di-deploy sebagai 'Anyone'.` });
       }
+      
       const data = await response.json();
       res.json(data);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error fetching from GAS:", err);
-      res.status(500).json({ error: "Gagal mengambil data dari Google Sheets. Pastikan URL GAS benar dan sudah di-deploy sebagai 'Anyone'." });
+      res.status(500).json({ error: `Koneksi ke Google Sheets gagal: ${err.message}. Periksa koneksi internet server atau URL GAS.` });
     }
   });
 
