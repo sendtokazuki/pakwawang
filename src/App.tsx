@@ -116,19 +116,24 @@ export default function App() {
   const fetchRecords = async () => {
     try {
       const res = await fetch('/api/records');
-      const data = await res.json();
+      let data;
+      
+      const contentType = res.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        throw new Error(text.substring(0, 100) || 'Server mengembalikan format non-JSON');
+      }
       
       if (!res.ok) {
-        throw new Error(data.error || 'Gagal mengambil data');
+        throw new Error(data?.error || 'Gagal mengambil data');
       }
       
       setRecords(data);
     } catch (err: any) {
       console.error('Fetch error:', err);
-      // Only alert if it's a real error, not just an empty initial state
-      if (err.message !== 'Unexpected end of JSON input') {
-        alert(`Kesalahan: ${err.message}`);
-      }
+      alert(`Kesalahan: ${err.message}`);
     } finally {
       setLoading(false);
     }

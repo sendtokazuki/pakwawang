@@ -59,17 +59,29 @@ async function startServer() {
         headers: { "Accept": "application/json" }
       });
       
+      const contentType = response.headers.get("content-type");
+      
       if (!response.ok) {
         const errorText = await response.text();
         console.error("GAS Fetch Error:", response.status, errorText);
-        return res.status(500).json({ error: `Google Sheets mengembalikan error ${response.status}. Pastikan script sudah di-deploy sebagai 'Anyone'.` });
+        return res.status(500).json({ error: `Google Sheets mengembalikan error ${response.status}.` });
       }
+
+      const text = await response.text();
       
-      const data = await response.json();
-      res.json(data);
+      try {
+        const data = JSON.parse(text);
+        res.json(data);
+      } catch (parseErr) {
+        console.error("GAS Response is not JSON:", text.substring(0, 200));
+        if (text.includes("Google Accounts") || text.includes("login")) {
+          return res.status(500).json({ error: "Akses ditolak. Pastikan Google Apps Script sudah di-deploy dengan akses 'Anyone' (Bukan 'Anyone with Google Account')." });
+        }
+        return res.status(500).json({ error: "Google Sheets mengembalikan format yang salah (Bukan JSON). Pastikan URL yang digunakan adalah URL 'Web App' yang berakhiran /exec." });
+      }
     } catch (err: any) {
       console.error("Error fetching from GAS:", err);
-      res.status(500).json({ error: `Koneksi ke Google Sheets gagal: ${err.message}. Periksa koneksi internet server atau URL GAS.` });
+      res.status(500).json({ error: `Koneksi ke Google Sheets gagal: ${err.message}` });
     }
   });
 
