@@ -16,7 +16,10 @@ async function startServer() {
 
   app.use(express.json());
 
-  let GAS_URL = (process.env.GAS_WEB_APP_URL || process.env.VITE_GAS_WEB_APP_URL || "").trim();
+  // URL Cadangan jika Environment Variable tidak diatur di Vercel
+  const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbyTB8FiRcuwgyiiKam-D7DayFsyqSy5gwqLN2iCPpSLmRXLSoM2tCevaRopdRYvUgfj/exec";
+  
+  let GAS_URL = (process.env.GAS_WEB_APP_URL || process.env.VITE_GAS_WEB_APP_URL || DEFAULT_GAS_URL).trim();
 
   if (!GAS_URL) {
     console.error("CRITICAL: GAS_WEB_APP_URL is not set in environment variables.");
