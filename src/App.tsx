@@ -84,6 +84,7 @@ export default function App() {
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   const [caregiverName, setCaregiverName] = useState(localStorage.getItem('caregiver_name') || '');
   const [showSyncInfo, setShowSyncInfo] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<{ configured: boolean; valid: boolean; preview?: string }>({ configured: false, valid: false });
   const [formData, setFormData] = useState({
     spo2: '',
     pulse: '',
@@ -97,6 +98,7 @@ export default function App() {
   });
 
   useEffect(() => {
+    checkHealth();
     fetchRecords();
 
     // WebSocket setup for real-time updates
@@ -113,6 +115,22 @@ export default function App() {
     return () => ws.close();
   }, []);
 
+  const checkHealth = async () => {
+    try {
+      const res = await fetch('/api/health');
+      if (res.ok) {
+        const data = await res.json();
+        setSyncStatus({
+          configured: data.gas_configured,
+          valid: data.gas_valid,
+          preview: data.gas_preview
+        });
+      }
+    } catch (err) {
+      console.error('Health check failed:', err);
+    }
+  };
+
   const fetchRecords = async () => {
     try {
       const res = await fetch('/api/records');
@@ -123,6 +141,9 @@ export default function App() {
         data = await res.json();
       } else {
         const text = await res.text();
+        if (text.includes("Not Found") || text.includes("could not be found")) {
+          throw new Error("Google Apps Script tidak ditemukan. Periksa URL di Vercel.");
+        }
         throw new Error(text.substring(0, 100) || 'Server mengembalikan format non-JSON');
       }
       
@@ -133,7 +154,7 @@ export default function App() {
       setRecords(data);
     } catch (err: any) {
       console.error('Fetch error:', err);
-      alert(`Kesalahan: ${err.message}`);
+      // Don't alert on every mount if not configured, but show in UI
     } finally {
       setLoading(false);
     }
@@ -269,18 +290,20 @@ export default function App() {
         onClick={() => setShowSyncInfo(true)}
         className={cn(
           "mb-6 p-3 rounded-2xl border flex items-center justify-between cursor-pointer transition-all",
-          isSyncConfigured 
+          syncStatus.configured && syncStatus.valid
             ? "bg-emerald-50 border-emerald-100 text-emerald-700" 
-            : "bg-slate-50 border-slate-200 text-slate-500"
+            : "bg-rose-50 border-rose-100 text-rose-700"
         )}
       >
         <div className="flex items-center gap-2">
           <div className={cn(
             "w-2 h-2 rounded-full animate-pulse",
-            isSyncConfigured ? "bg-emerald-500" : "bg-slate-400"
+            syncStatus.configured && syncStatus.valid ? "bg-emerald-500" : "bg-rose-500"
           )} />
           <span className="text-xs font-bold uppercase tracking-wider">
-            {isSyncConfigured ? "Google Sheets Terhubung" : "Google Sheets Belum Aktif"}
+            {syncStatus.configured 
+              ? (syncStatus.valid ? "Google Sheets Terhubung" : "URL Script Tidak Valid") 
+              : "Google Sheets Belum Aktif"}
           </span>
         </div>
         <ChevronRight className="w-4 h-4 opacity-50" />
@@ -510,40 +533,59 @@ export default function App() {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="relative bg-white w-full max-w-md rounded-3xl p-6 shadow-2xl"
+              className="relative bg-white w-full max-w-md rounded-3xl p-6 shadow-2xl overflow-y-auto max-h-[90vh]"
             >
-              <h2 className="text-xl font-bold text-slate-900 mb-4">Integrasi Google Sheets</h2>
-              <div className="space-y-4 text-sm text-slate-600">
-                <p>Anda dapat menghubungkan aplikasi ini ke Google Sheets untuk melihat data dalam format tabel secara langsung.</p>
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 space-y-2">
-                  <p className="font-bold text-slate-900">Cara Setup:</p>
-                  <ol className="list-decimal list-inside space-y-1 text-xs">
-                    <li>Buka Google Sheet baru.</li>
-                    <li>Pilih <b>Extensions &gt; Apps Script</b>.</li>
-                    <li>Salin kode dari file <code>GOOGLE_APPS_SCRIPT.js</code> di project ini.</li>
-                    <li>Klik <b>Deploy &gt; New Deployment</b>.</li>
-                    <li>Pilih <b>Web App</b>, akses: <b>Anyone</b>.</li>
-                    <li>Salin URL Web App yang muncul.</li>
-                    <li>Masukkan URL tersebut ke Environment Variable <code>GAS_WEB_APP_URL</code>.</li>
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-slate-900">Status Sinkronisasi</h2>
+                <button onClick={() => setShowSyncInfo(false)} className="p-2 hover:bg-slate-100 rounded-full">
+                  <Plus className="w-5 h-5 rotate-45 text-slate-400" />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">URL Terdeteksi di Server</p>
+                  <code className="text-[10px] break-all bg-white p-2 rounded border block text-slate-600 font-mono">
+                    {syncStatus.preview || "Tidak ada URL terdeteksi"}
+                  </code>
+                  {syncStatus.configured && !syncStatus.valid && (
+                    <div className="mt-3 p-2 bg-rose-50 border border-rose-100 rounded-lg flex gap-2 items-start">
+                      <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                      <p className="text-[10px] text-rose-600 font-bold">
+                        URL tidak valid! Harus berakhiran <strong>/exec</strong>. URL saat ini mungkin URL editor (/edit).
+                      </p>
+                    </div>
+                  )}
+                  {syncStatus.configured && syncStatus.valid && (
+                    <div className="mt-3 p-2 bg-emerald-50 border border-emerald-100 rounded-lg flex gap-2 items-start">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                      <p className="text-[10px] text-emerald-600 font-bold">
+                        Format URL sudah benar. Jika masih error, pastikan akses di-set ke "Anyone".
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="font-bold text-slate-900 text-sm">Cara Menghubungkan Google Sheets:</h3>
+                  <ol className="space-y-3 text-xs text-slate-600 list-decimal pl-4">
+                    <li>Buka Google Sheets Anda.</li>
+                    <li>Klik <strong>Extensions</strong> &gt; <strong>Apps Script</strong>.</li>
+                    <li>Hapus semua kode dan tempelkan kode dari file <code>GOOGLE_APPS_SCRIPT.js</code>.</li>
+                    <li>Klik <strong>Deploy</strong> &gt; <strong>New Deployment</strong>.</li>
+                    <li>Pilih <strong>Web App</strong>, Execute as: <strong>Me</strong>, Access: <strong>Anyone</strong>.</li>
+                    <li>Salin URL yang berakhiran <code>/exec</code>.</li>
+                    <li>Masukkan ke Environment Variable <code>GAS_WEB_APP_URL</code> di Vercel.</li>
+                    <li><strong>PENTING:</strong> Lakukan <strong>Redeploy</strong> di Vercel agar perubahan aktif.</li>
                   </ol>
                 </div>
-                {isSyncConfigured ? (
-                  <div className="flex items-center gap-2 text-emerald-600 font-bold bg-emerald-50 p-3 rounded-xl border border-emerald-100">
-                    <CheckCircle2 className="w-5 h-5" />
-                    <span>Status: Terkoneksi & Aktif</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 text-amber-600 font-bold bg-amber-50 p-3 rounded-xl border border-amber-100">
-                    <AlertCircle className="w-5 h-5" />
-                    <span>Status: Belum Dikonfigurasi</span>
-                  </div>
-                )}
               </div>
+
               <button 
                 onClick={() => setShowSyncInfo(false)}
-                className="w-full mt-6 bg-slate-900 text-white font-bold py-3 rounded-xl"
+                className="w-full mt-8 py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all"
               >
-                Mengerti
+                Tutup
               </button>
             </motion.div>
           </div>

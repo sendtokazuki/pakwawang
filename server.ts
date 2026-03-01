@@ -16,12 +16,15 @@ async function startServer() {
 
   app.use(express.json());
 
-  const GAS_URL = process.env.GAS_WEB_APP_URL || process.env.VITE_GAS_WEB_APP_URL;
+  let GAS_URL = (process.env.GAS_WEB_APP_URL || process.env.VITE_GAS_WEB_APP_URL || "").trim();
 
   if (!GAS_URL) {
     console.error("CRITICAL: GAS_WEB_APP_URL is not set in environment variables.");
-  } else if (GAS_URL.includes("/edit")) {
-    console.error("CRITICAL: GAS_WEB_APP_URL looks like an editor URL (ends in /edit). It MUST be a Web App URL (ends in /exec).");
+  } else {
+    console.log("GAS URL Configured:", GAS_URL.substring(0, 30) + "...");
+    if (GAS_URL.includes("/edit")) {
+      console.error("CRITICAL: GAS_WEB_APP_URL looks like an editor URL (ends in /edit). It MUST be a Web App URL (ends in /exec).");
+    }
   }
 
   app.get("/api/health", (req, res) => {
@@ -29,7 +32,8 @@ async function startServer() {
       status: "ok", 
       mode: "Google Sheets Full",
       gas_configured: !!GAS_URL,
-      gas_valid: GAS_URL ? GAS_URL.includes("/exec") : false
+      gas_valid: GAS_URL ? GAS_URL.includes("/exec") : false,
+      gas_preview: GAS_URL ? `${GAS_URL.substring(0, 20)}...${GAS_URL.slice(-10)}` : "none"
     });
   });
 
@@ -45,43 +49,48 @@ async function startServer() {
   // API Routes (Proxying to Google Sheets)
   app.get("/api/records", async (req, res) => {
     if (!GAS_URL) {
-      return res.status(500).json({ error: "GAS_WEB_APP_URL belum dikonfigurasi di Environment Variables." });
+      return res.status(500).json({ error: "GAS_WEB_APP_URL belum dikonfigurasi di Environment Variables Vercel." });
     }
     
-    if (GAS_URL.includes("/edit")) {
-      return res.status(500).json({ error: "URL Google Apps Script salah. Gunakan URL 'Web App' (akhiran /exec), bukan URL editor (akhiran /edit)." });
+    if (GAS_URL.includes("/edit") || !GAS_URL.includes("/exec")) {
+      return res.status(500).json({ error: "URL Google Apps Script tidak valid. Pastikan menggunakan URL 'Web App' (akhiran /exec), bukan URL editor." });
     }
 
     try {
-      console.log("Fetching records from GAS:", GAS_URL);
+      console.log("Fetching records from GAS...");
       const response = await fetch(GAS_URL, {
         method: "GET",
-        headers: { "Accept": "application/json" }
+        headers: { "Accept": "application/json" },
+        redirect: "follow" // Ensure we follow Google's redirects
       });
       
-      const contentType = response.headers.get("content-type");
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("GAS Fetch Error:", response.status, errorText);
-        return res.status(500).json({ error: `Google Sheets mengembalikan error ${response.status}.` });
+      if (response.status === 404) {
+        return res.status(500).json({ error: "Google Apps Script tidak ditemukan (404). Pastikan URL sudah benar dan script sudah di-deploy ulang." });
       }
 
       const text = await response.text();
       
+      if (!response.ok) {
+        console.error("GAS Error Response:", response.status, text.substring(0, 200));
+        return res.status(500).json({ error: `Google Sheets mengembalikan error ${response.status}: ${text.substring(0, 50)}` });
+      }
+
       try {
         const data = JSON.parse(text);
         res.json(data);
       } catch (parseErr) {
         console.error("GAS Response is not JSON:", text.substring(0, 200));
-        if (text.includes("Google Accounts") || text.includes("login")) {
-          return res.status(500).json({ error: "Akses ditolak. Pastikan Google Apps Script sudah di-deploy dengan akses 'Anyone' (Bukan 'Anyone with Google Account')." });
+        if (text.includes("Google Accounts") || text.includes("login") || text.includes("Sign in")) {
+          return res.status(500).json({ error: "Akses ditolak. Pastikan Google Apps Script di-deploy dengan akses 'Anyone' (Bukan 'Anyone with Google Account')." });
         }
-        return res.status(500).json({ error: "Google Sheets mengembalikan format yang salah (Bukan JSON). Pastikan URL yang digunakan adalah URL 'Web App' yang berakhiran /exec." });
+        if (text.includes("not found") || text.includes("NotFound")) {
+          return res.status(500).json({ error: "Halaman script tidak ditemukan. Pastikan URL Web App Anda benar dan sudah di-deploy." });
+        }
+        return res.status(500).json({ error: "Format data dari Google Sheets salah. Pastikan script sudah di-deploy sebagai Web App." });
       }
     } catch (err: any) {
       console.error("Error fetching from GAS:", err);
-      res.status(500).json({ error: `Koneksi ke Google Sheets gagal: ${err.message}` });
+      res.status(500).json({ error: `Gagal terhubung ke Google Sheets: ${err.message}` });
     }
   });
 
