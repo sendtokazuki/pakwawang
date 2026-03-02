@@ -16,25 +16,32 @@ async function startServer() {
 
   app.use(express.json());
 
-  // Helper untuk mendapatkan GAS URL dari header atau env
+  // Helper untuk mendapatkan GAS URL dari header, query, atau env
   const getGasUrl = (req: express.Request) => {
     const headerUrl = req.headers['x-gas-url'];
+    const queryUrl = req.query.gas_url;
+    
     if (headerUrl && typeof headerUrl === 'string' && headerUrl.trim()) {
       return headerUrl.trim();
+    }
+    if (queryUrl && typeof queryUrl === 'string' && queryUrl.trim()) {
+      return queryUrl.trim();
     }
     return (process.env.GAS_WEB_APP_URL || process.env.VITE_GAS_WEB_APP_URL || "").trim();
   };
 
-  const BUILD_TIME = "2026-03-01 16:50"; // Versi Stateless (Header Based)
+  const BUILD_TIME = "2026-03-01 16:55"; // Versi Multi-Channel Detection
 
   app.get("/api/health", (req, res) => {
     const currentUrl = getGasUrl(req);
+    console.log("Health Check - URL detected:", currentUrl ? "Yes (starts with " + currentUrl.substring(0, 10) + ")" : "No");
     res.json({ 
       status: "ok", 
       version: BUILD_TIME,
       gas_configured: !!currentUrl, 
       gas_valid: currentUrl ? currentUrl.includes("/exec") : false,
-      gas_preview: currentUrl ? `${currentUrl.substring(0, 25)}...${currentUrl.slice(-10)}` : "Belum diatur"
+      gas_preview: currentUrl ? `${currentUrl.substring(0, 25)}...${currentUrl.slice(-10)}` : "Belum diatur",
+      full_url_valid: currentUrl && currentUrl.startsWith("https://script.google.com")
     });
   });
 

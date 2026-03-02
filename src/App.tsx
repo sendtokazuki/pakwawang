@@ -121,7 +121,8 @@ export default function App() {
   const checkHealth = async () => {
     try {
       const gasUrl = localStorage.getItem('manual_gas_url') || '';
-      const res = await fetch(`/api/health?t=${Date.now()}`, {
+      // Kirim via header DAN query param untuk memastikan sampai ke server
+      const res = await fetch(`/api/health?t=${Date.now()}&gas_url=${encodeURIComponent(gasUrl)}`, {
         headers: { 'x-gas-url': gasUrl }
       });
       if (res.ok) {
@@ -133,7 +134,7 @@ export default function App() {
           preview: data.gas_preview,
           isFallback: data.is_using_fallback,
           version: data.version,
-          manualUrl: gasUrl // Use local value
+          manualUrl: gasUrl
         });
       }
     } catch (err) {
@@ -172,7 +173,7 @@ export default function App() {
   const fetchRecords = async () => {
     try {
       const gasUrl = localStorage.getItem('manual_gas_url') || '';
-      const res = await fetch('/api/records', {
+      const res = await fetch(`/api/records?gas_url=${encodeURIComponent(gasUrl)}`, {
         headers: { 'x-gas-url': gasUrl }
       });
       let data;
@@ -226,7 +227,7 @@ export default function App() {
 
     try {
       const gasUrl = localStorage.getItem('manual_gas_url') || '';
-      const res = await fetch('/api/records', {
+      const res = await fetch(`/api/records?gas_url=${encodeURIComponent(gasUrl)}`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -273,7 +274,7 @@ export default function App() {
     if (!confirm('Hapus catatan ini?')) return;
     try {
       const gasUrl = localStorage.getItem('manual_gas_url') || '';
-      await fetch(`/api/records/${id}`, { 
+      await fetch(`/api/records/${id}?gas_url=${encodeURIComponent(gasUrl)}`, { 
         method: 'DELETE',
         headers: { 'x-gas-url': gasUrl }
       });
