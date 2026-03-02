@@ -84,10 +84,7 @@ export default function App() {
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   const [caregiverName, setCaregiverName] = useState(localStorage.getItem('caregiver_name') || '');
   const [showSyncInfo, setShowSyncInfo] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<{ configured: boolean; valid: boolean; preview?: string; isFallback?: boolean; version?: string; manualUrl?: string }>({ configured: false, valid: false });
-  const [manualUrlInput, setManualUrlInput] = useState(localStorage.getItem('manual_gas_url') || '');
-  const [isSavingUrl, setIsSavingUrl] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<{ configured: boolean; valid: boolean; preview?: string; isFallback?: boolean; version?: string }>({ configured: false, valid: false });
   const [formData, setFormData] = useState({
     spo2: '',
     pulse: '',
@@ -120,21 +117,15 @@ export default function App() {
 
   const checkHealth = async () => {
     try {
-      const gasUrl = localStorage.getItem('manual_gas_url') || '';
-      // Kirim via header DAN query param untuk memastikan sampai ke server
-      const res = await fetch(`/api/health?t=${Date.now()}&gas_url=${encodeURIComponent(gasUrl)}`, {
-        headers: { 'x-gas-url': gasUrl }
-      });
+      const res = await fetch(`/api/health?t=${Date.now()}`);
       if (res.ok) {
         const data = await res.json();
-        console.log('Sync Health Check:', data);
         setSyncStatus({
           configured: data.gas_configured,
           valid: data.gas_valid,
           preview: data.gas_preview,
           isFallback: data.is_using_fallback,
-          version: data.version,
-          manualUrl: gasUrl
+          version: data.version
         });
       }
     } catch (err) {
@@ -142,40 +133,9 @@ export default function App() {
     }
   };
 
-  const saveManualUrl = async () => {
-    const trimmedUrl = manualUrlInput.trim();
-    if (!trimmedUrl) {
-      alert('Silakan masukkan URL terlebih dahulu');
-      return;
-    }
-    
-    setIsSavingUrl(true);
-    setSaveSuccess(false);
-    
-    try {
-      // Simpan di localStorage (Client-side persistence)
-      localStorage.setItem('manual_gas_url', trimmedUrl);
-      
-      // Verifikasi dengan checkHealth
-      await checkHealth();
-      await fetchRecords();
-      
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
-    } catch (err) {
-      console.error('Error saving URL:', err);
-      alert('Gagal memverifikasi URL');
-    } finally {
-      setIsSavingUrl(false);
-    }
-  };
-
   const fetchRecords = async () => {
     try {
-      const gasUrl = localStorage.getItem('manual_gas_url') || '';
-      const res = await fetch(`/api/records?gas_url=${encodeURIComponent(gasUrl)}`, {
-        headers: { 'x-gas-url': gasUrl }
-      });
+      const res = await fetch('/api/records');
       let data;
       
       const contentType = res.headers.get("content-type");
@@ -226,13 +186,9 @@ export default function App() {
     localStorage.setItem('caregiver_name', caregiverName);
 
     try {
-      const gasUrl = localStorage.getItem('manual_gas_url') || '';
-      const res = await fetch(`/api/records?gas_url=${encodeURIComponent(gasUrl)}`, {
+      const res = await fetch('/api/records', {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'x-gas-url': gasUrl
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           spo2: formData.spo2 ? parseInt(formData.spo2) : null,
           pulse: formData.pulse ? parseInt(formData.pulse) : null,
@@ -273,11 +229,7 @@ export default function App() {
   const deleteRecord = async (id: string) => {
     if (!confirm('Hapus catatan ini?')) return;
     try {
-      const gasUrl = localStorage.getItem('manual_gas_url') || '';
-      await fetch(`/api/records/${id}?gas_url=${encodeURIComponent(gasUrl)}`, { 
-        method: 'DELETE',
-        headers: { 'x-gas-url': gasUrl }
-      });
+      await fetch(`/api/records/${id}`, { method: 'DELETE' });
       fetchRecords();
     } catch (err) {
       console.error(err);
@@ -614,32 +566,6 @@ export default function App() {
                   <code className="text-[10px] break-all bg-white p-2 rounded border block text-slate-600 font-mono">
                     {syncStatus.preview || "Tidak ada URL terdeteksi"}
                   </code>
-
-                  <div className="mt-6 pt-6 border-t border-slate-100">
-                    <p className="text-xs font-bold text-slate-900 mb-3">Input URL Manual</p>
-                    <div className="space-y-3">
-                      <input 
-                        type="text"
-                        value={manualUrlInput}
-                        onChange={(e) => setManualUrlInput(e.target.value)}
-                        placeholder="Tempel link /exec di sini..."
-                        className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                      />
-                      <button 
-                        onClick={saveManualUrl}
-                        disabled={isSavingUrl}
-                        className={cn(
-                          "w-full py-3 rounded-xl text-sm font-bold shadow-lg active:scale-95 transition-all disabled:opacity-50",
-                          saveSuccess ? "bg-emerald-600 text-white" : "bg-blue-600 text-white shadow-blue-100"
-                        )}
-                      >
-                        {isSavingUrl ? 'Menyimpan...' : (saveSuccess ? '✓ Berhasil Tersambung!' : 'Simpan & Hubungkan')}
-                      </button>
-                      <p className="text-[10px] text-slate-400 leading-relaxed">
-                        * Gunakan fitur ini jika Anda tidak ingin repot mengatur Environment Variables di Vercel. Link akan tersimpan selama sesi server aktif.
-                      </p>
-                    </div>
-                  </div>
                   {syncStatus.configured && !syncStatus.valid && (
                     <div className="mt-3 p-2 bg-rose-50 border border-rose-100 rounded-lg flex gap-2 items-start">
                       <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
