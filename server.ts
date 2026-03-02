@@ -4,9 +4,15 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { WebSocketServer, WebSocket } from "ws";
 import { createServer } from "http";
+import { createClient } from "@supabase/supabase-js";
 import "dotenv/config";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Initialize Supabase
+const supabaseUrl = process.env.SUPABASE_URL || "";
+const supabaseKey = process.env.SUPABASE_ANON_KEY || "";
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function startServer() {
   const app = express();
@@ -16,18 +22,14 @@ async function startServer() {
 
   app.use(express.json());
 
-  // Google Apps Script Web App URL from environment variables
-  const GAS_URL = (process.env.GAS_WEB_APP_URL || process.env.VITE_GAS_WEB_APP_URL || "").trim();
-
-  const BUILD_TIME = "2026-03-01 17:05"; // Versi Reset Bersih
+  const BUILD_TIME = "2026-03-01 17:55";
 
   app.get("/api/health", (req, res) => {
     res.json({ 
       status: "ok", 
       version: BUILD_TIME,
-      gas_configured: !!GAS_URL, 
-      gas_valid: GAS_URL.includes("/exec"),
-      gas_preview: GAS_URL ? `${GAS_URL.substring(0, 25)}...${GAS_URL.slice(-10)}` : "Belum diatur"
+      supabase_configured: !!supabaseUrl && !!supabaseKey,
+      db_type: "Supabase"
     });
   });
 
@@ -40,72 +42,61 @@ async function startServer() {
     });
   };
 
-  // API Routes (Proxying to Google Sheets)
+  // API Routes (Supabase)
   app.get("/api/records", async (req, res) => {
-    if (!GAS_URL) {
-      return res.status(500).json({ error: "GAS_WEB_APP_URL belum dikonfigurasi di Environment Variables Vercel." });
-    }
-    
-    if (GAS_URL.includes("/edit") || !GAS_URL.includes("/exec")) {
-      return res.status(500).json({ error: "URL Google Apps Script tidak valid. Pastikan menggunakan URL 'Web App' (akhiran /exec), bukan URL editor." });
+    if (!supabaseUrl || !supabaseKey) {
+      return res.status(500).json({ error: "Supabase belum dikonfigurasi di Vercel." });
     }
 
     try {
-      console.log("Fetching records from GAS...");
-      const response = await fetch(GAS_URL, {
-        method: "GET",
-        headers: { "Accept": "application/json" },
-        redirect: "follow"
-      });
-      
-      const text = await response.text();
-      
-      if (!response.ok) {
-        return res.status(500).json({ error: `Google Sheets error ${response.status}` });
-      }
+      const { data, error } = await supabase
+        .from('health_records')
+        .select('*')
+        .order('timestamp', { ascending: false });
 
-      try {
-        const data = JSON.parse(text);
-        res.json(data);
-      } catch (parseErr) {
-        if (text.includes("Google Accounts") || text.includes("login")) {
-          return res.status(500).json({ error: "Akses ditolak. Set akses ke 'Anyone'." });
-        }
-        return res.status(500).json({ error: "Format data salah." });
-      }
+      if (error) throw error;
+      res.json(data || []);
     } catch (err: any) {
-      res.status(500).json({ error: `Gagal terhubung: ${err.message}` });
+      console.error("Supabase Fetch Error:", err);
+      res.status(500).json({ error: `Gagal mengambil data: ${err.message}` });
     }
   });
 
   app.post("/api/records", async (req, res) => {
-    if (!GAS_URL) return res.status(500).json({ error: "URL tidak dikonfigurasi" });
+    if (!supabaseUrl || !supabaseKey) return res.status(500).json({ error: "Supabase belum dikonfigurasi" });
+    
     try {
-      const response = await fetch(GAS_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(req.body)
-      });
-      const result = await response.json();
+      const { data, error } = await supabase
+        .from('health_records')
+        .insert([req.body])
+        .select();
+
+      if (error) throw error;
+      
       broadcast({ type: "RECORD_ADDED" });
-      res.json(result);
-    } catch (err) {
-      res.status(500).json({ error: "Gagal menyimpan" });
+      res.json(data[0]);
+    } catch (err: any) {
+      console.error("Supabase Insert Error:", err);
+      res.status(500).json({ error: "Gagal menyimpan data" });
     }
   });
 
   app.delete("/api/records/:id", async (req, res) => {
-    if (!GAS_URL) return res.status(500).json({ error: "URL tidak dikonfigurasi" });
+    if (!supabaseUrl || !supabaseKey) return res.status(500).json({ error: "Supabase belum dikonfigurasi" });
+    
     try {
-      await fetch(GAS_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: 'delete', timestamp: req.params.id })
-      });
+      const { error } = await supabase
+        .from('health_records')
+        .delete()
+        .eq('id', req.params.id);
+
+      if (error) throw error;
+      
       broadcast({ type: "RECORD_DELETED" });
       res.json({ success: true });
-    } catch (err) {
-      res.status(500).json({ error: "Gagal menghapus" });
+    } catch (err: any) {
+      console.error("Supabase Delete Error:", err);
+      res.status(500).json({ error: "Gagal menghapus data" });
     }
   });
 
@@ -117,7 +108,6 @@ async function startServer() {
     });
     app.use(vite.middlewares);
     
-    // Fallback for SPA routing in dev mode
     app.get("*", async (req, res, next) => {
       const url = req.originalUrl;
       try {
@@ -127,7 +117,7 @@ async function startServer() {
             <head>
               <meta charset="UTF-8" />
               <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-              <title>Catatan Kesehatan Bapak</title>
+              <title>Health Dashboard Pro</title>
             </head>
             <body>
               <div id="root"></div>

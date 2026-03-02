@@ -1,5 +1,5 @@
 {
-  "name": "Remix: Catatan Kesehatan Pak Wawang",
-  "description": "Aplikasi pemantauan kesehatan harian untuk mencatat saturasi oksigen, nadi, suhu tubuh, tekanan darah, dan kadar gula darah.",
+  "name": "Health Dashboard Pro",
+  "description": "Premium Health Monitoring Dashboard powered by Supabase Cloud Database.",
   "requestFramePermissions": []
 }

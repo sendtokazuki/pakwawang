@@ -78,13 +78,12 @@ const MetricCard = ({
 );
 
 export default function App() {
-  const [records, setRecords] = useState<HealthRecord[]>([]);
+  const [records, setRecords] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   const [caregiverName, setCaregiverName] = useState(localStorage.getItem('caregiver_name') || '');
-  const [showSyncInfo, setShowSyncInfo] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<{ configured: boolean; valid: boolean; preview?: string; isFallback?: boolean; version?: string }>({ configured: false, valid: false });
+  const [syncStatus, setSyncStatus] = useState({ configured: false, dbType: '' });
   const [formData, setFormData] = useState({
     spo2: '',
     pulse: '',
@@ -101,7 +100,6 @@ export default function App() {
     checkHealth();
     fetchRecords();
 
-    // WebSocket setup for real-time updates
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${protocol}//${window.location.host}`);
 
@@ -121,11 +119,8 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setSyncStatus({
-          configured: data.gas_configured,
-          valid: data.gas_valid,
-          preview: data.gas_preview,
-          isFallback: data.is_using_fallback,
-          version: data.version
+          configured: data.supabase_configured,
+          dbType: data.db_type
         });
       }
     } catch (err) {
@@ -136,29 +131,60 @@ export default function App() {
   const fetchRecords = async () => {
     try {
       const res = await fetch('/api/records');
-      let data;
-      
-      const contentType = res.headers.get("content-type");
-      if (contentType && contentType.includes("application/json")) {
-        data = await res.json();
-      } else {
-        const text = await res.text();
-        if (text.includes("Not Found") || text.includes("could not be found")) {
-          throw new Error("Google Apps Script tidak ditemukan. Periksa URL di Vercel.");
-        }
-        throw new Error(text.substring(0, 100) || 'Server mengembalikan format non-JSON');
+      if (res.ok) {
+        const data = await res.json();
+        setRecords(data);
       }
-      
-      if (!res.ok) {
-        throw new Error(data?.error || 'Gagal mengambil data');
-      }
-      
-      setRecords(data);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Fetch error:', err);
-      // Don't alert on every mount if not configured, but show in UI
     } finally {
       setLoading(false);
+    }
+  };
+
+  const addRecord = async (e: React.FormEvent) => {
+    e.preventDefault();
+    localStorage.setItem('caregiver_name', caregiverName);
+
+    try {
+      const res = await fetch('/api/records', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          spo2: formData.spo2 ? parseInt(formData.spo2) : null,
+          pulse: formData.pulse ? parseInt(formData.pulse) : null,
+          temperature: formData.temperature ? parseFloat(formData.temperature) : null,
+          systolic: formData.systolic ? parseInt(formData.systolic) : null,
+          diastolic: formData.diastolic ? parseInt(formData.diastolic) : null,
+          blood_sugar: formData.blood_sugar ? parseInt(formData.blood_sugar) : null,
+          medications: formData.medications,
+          notes: formData.notes,
+          caregiver_name: caregiverName,
+          timestamp: formData.timestamp || new Date().toISOString()
+        })
+      });
+
+      if (res.ok) {
+        setShowForm(false);
+        setFormData({
+          spo2: '', pulse: '', temperature: '', systolic: '', diastolic: '',
+          blood_sugar: '', medications: '', notes: '',
+          timestamp: format(new Date(), "yyyy-MM-dd'T'HH:mm")
+        });
+        fetchRecords();
+      }
+    } catch (err) {
+      alert('Gagal menyimpan data');
+    }
+  };
+
+  const deleteRecord = async (id: string) => {
+    if (!confirm('Hapus catatan ini?')) return;
+    try {
+      await fetch(`/api/records/${id}`, { method: 'DELETE' });
+      fetchRecords();
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -175,66 +201,6 @@ export default function App() {
       return true;
     });
   }, [records, timeFilter]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!caregiverName) {
-      alert('Mohon isi nama Anda terlebih dahulu');
-      return;
-    }
-    
-    localStorage.setItem('caregiver_name', caregiverName);
-
-    try {
-      const res = await fetch('/api/records', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          spo2: formData.spo2 ? parseInt(formData.spo2) : null,
-          pulse: formData.pulse ? parseInt(formData.pulse) : null,
-          temperature: formData.temperature ? parseFloat(formData.temperature) : null,
-          systolic: formData.systolic ? parseInt(formData.systolic) : null,
-          diastolic: formData.diastolic ? parseInt(formData.diastolic) : null,
-          blood_sugar: formData.blood_sugar ? parseInt(formData.blood_sugar) : null,
-          medications: formData.medications,
-          caregiver_name: caregiverName,
-          notes: formData.notes,
-          timestamp: formData.timestamp ? new Date(formData.timestamp).toISOString() : null
-        })
-      });
-      if (res.ok) {
-        setFormData({
-          spo2: '',
-          pulse: '',
-          temperature: '',
-          systolic: '',
-          diastolic: '',
-          blood_sugar: '',
-          medications: '',
-          notes: '',
-          timestamp: format(new Date(), "yyyy-MM-dd'T'HH:mm")
-        });
-        setShowForm(false);
-        fetchRecords();
-      } else {
-        const errorData = await res.json();
-        alert(`Gagal menyimpan: ${errorData.error || 'Terjadi kesalahan'}`);
-      }
-    } catch (err) {
-      console.error(err);
-      alert('Terjadi kesalahan saat menyimpan data.');
-    }
-  };
-
-  const deleteRecord = async (id: string) => {
-    if (!confirm('Hapus catatan ini?')) return;
-    try {
-      await fetch(`/api/records/${id}`, { method: 'DELETE' });
-      fetchRecords();
-    } catch (err) {
-      console.error(err);
-    }
-  };
 
   const latest = records[0];
   const chartData = [...records].reverse().slice(-10).map(r => ({
@@ -286,12 +252,11 @@ export default function App() {
         </div>
       </header>
 
-      {/* Google Sheets Sync Indicator */}
+      {/* Cloud Database Sync Indicator */}
       <div 
-        onClick={() => setShowSyncInfo(true)}
         className={cn(
-          "mb-6 p-3 rounded-2xl border flex items-center justify-between cursor-pointer transition-all",
-          syncStatus.configured && syncStatus.valid
+          "mb-6 p-3 rounded-2xl border flex items-center justify-between transition-all",
+          syncStatus.configured
             ? "bg-emerald-50 border-emerald-100 text-emerald-700" 
             : "bg-rose-50 border-rose-100 text-rose-700"
         )}
@@ -299,15 +264,15 @@ export default function App() {
         <div className="flex items-center gap-2">
           <div className={cn(
             "w-2 h-2 rounded-full animate-pulse",
-            syncStatus.configured && syncStatus.valid ? "bg-emerald-500" : "bg-rose-500"
+            syncStatus.configured ? "bg-emerald-500" : "bg-rose-500"
           )} />
           <span className="text-xs font-bold uppercase tracking-wider">
             {syncStatus.configured 
-              ? (syncStatus.valid ? "Google Sheets Terhubung" : "URL Script Tidak Valid") 
-              : "Google Sheets Belum Aktif"}
+              ? `Cloud Database ${syncStatus.dbType} Aktif` 
+              : "Database Belum Terhubung"}
           </span>
         </div>
-        <ChevronRight className="w-4 h-4 opacity-50" />
+        {syncStatus.configured ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
       </div>
 
       {/* Summary Grid */}
@@ -521,94 +486,6 @@ export default function App() {
 
       {/* Input Form Modal */}
       <AnimatePresence>
-        {showSyncInfo && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowSyncInfo(false)}
-              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="relative bg-white w-full max-w-md rounded-3xl p-6 shadow-2xl overflow-y-auto max-h-[90vh]"
-            >
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-slate-900">Status Sinkronisasi</h2>
-                <div className="flex items-center gap-2">
-                  <button 
-                    onClick={() => {
-                      setLoading(true);
-                      checkHealth().then(() => fetchRecords());
-                    }}
-                    className="p-2 hover:bg-blue-50 text-blue-600 rounded-full transition-colors"
-                    title="Refresh Status"
-                  >
-                    <Activity className="w-4 h-4" />
-                  </button>
-                  <button onClick={() => setShowSyncInfo(false)} className="p-2 hover:bg-slate-100 rounded-full">
-                    <Plus className="w-5 h-5 rotate-45 text-slate-400" />
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-6">
-                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                  <div className="flex justify-between items-start mb-2">
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-                      URL Terdeteksi di Server
-                    </p>
-                    <span className="text-[8px] text-slate-300 font-mono">v.{syncStatus.version || "unknown"}</span>
-                  </div>
-                  <code className="text-[10px] break-all bg-white p-2 rounded border block text-slate-600 font-mono">
-                    {syncStatus.preview || "Tidak ada URL terdeteksi"}
-                  </code>
-                  {syncStatus.configured && !syncStatus.valid && (
-                    <div className="mt-3 p-2 bg-rose-50 border border-rose-100 rounded-lg flex gap-2 items-start">
-                      <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-                      <p className="text-[10px] text-rose-600 font-bold">
-                        URL tidak valid! Harus berakhiran <strong>/exec</strong>. URL saat ini mungkin URL editor (/edit).
-                      </p>
-                    </div>
-                  )}
-                  {syncStatus.configured && syncStatus.valid && (
-                    <div className="mt-3 p-2 bg-emerald-50 border border-emerald-100 rounded-lg flex gap-2 items-start">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                      <p className="text-[10px] text-emerald-600 font-bold">
-                        Format URL sudah benar. Jika masih error, pastikan akses di-set ke "Anyone".
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                <div className="space-y-4">
-                  <h3 className="font-bold text-slate-900 text-sm">Cara Menghubungkan Google Sheets:</h3>
-                  <ol className="space-y-3 text-xs text-slate-600 list-decimal pl-4">
-                    <li>Buka Google Sheets Anda.</li>
-                    <li>Klik <strong>Extensions</strong> &gt; <strong>Apps Script</strong>.</li>
-                    <li>Hapus semua kode dan tempelkan kode dari file <code>GOOGLE_APPS_SCRIPT.js</code>.</li>
-                    <li>Klik <strong>Deploy</strong> &gt; <strong>New Deployment</strong>.</li>
-                    <li>Pilih <strong>Web App</strong>, Execute as: <strong>Me</strong>, Access: <strong>Anyone</strong>.</li>
-                    <li>Salin URL yang berakhiran <code>/exec</code>.</li>
-                    <li>Masukkan ke Environment Variable <code>GAS_WEB_APP_URL</code> di Vercel.</li>
-                    <li><strong>PENTING:</strong> Lakukan <strong>Redeploy</strong> di Vercel agar perubahan aktif.</li>
-                  </ol>
-                </div>
-              </div>
-
-              <button 
-                onClick={() => setShowSyncInfo(false)}
-                className="w-full mt-8 py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all"
-              >
-                Tutup
-              </button>
-            </motion.div>
-          </div>
-        )}
-
         {showForm && (
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
             <motion.div 
@@ -634,7 +511,7 @@ export default function App() {
                 </button>
               </div>
 
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form onSubmit={addRecord} className="space-y-4">
                 {/* Caregiver Identity */}
                 <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100 mb-2">
                   <label className="text-xs font-bold text-blue-600 uppercase mb-2 block">Nama Anda (Perawat/Saudara)</label>
