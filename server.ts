@@ -16,24 +16,30 @@ async function startServer() {
 
   app.use(express.json());
 
-  // URL Cadangan Permanen
-  const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbyTB8FiRcuwgyiiKam-D7DayFsyqSy5gwqLN2iCPpSLmRXLSoM2tCevaRopdRYvUgfj/exec";
-  
-  // Ambil dari environment, jika kosong gunakan DEFAULT_GAS_URL
-  const rawEnvUrl = process.env.GAS_WEB_APP_URL || process.env.VITE_GAS_WEB_APP_URL || "";
-  const GAS_URL = rawEnvUrl.trim() || DEFAULT_GAS_URL;
+  // Ambil dari environment variables sebagai default awal
+  let manualGasUrl = "";
+  const getGasUrl = () => manualGasUrl || (process.env.GAS_WEB_APP_URL || process.env.VITE_GAS_WEB_APP_URL || "").trim();
 
-  const BUILD_TIME = "2026-03-01 16:15"; // Penanda versi terbaru - VERIFIKASI AKTIF
+  const BUILD_TIME = "2026-03-01 16:30"; // Versi dengan Input Manual
 
   app.get("/api/health", (req, res) => {
+    const currentUrl = getGasUrl();
     res.json({ 
       status: "ok", 
       version: BUILD_TIME,
-      gas_configured: true, 
-      gas_valid: GAS_URL.includes("/exec"),
-      gas_preview: `${GAS_URL.substring(0, 25)}...${GAS_URL.slice(-10)}`,
-      is_using_fallback: GAS_URL === DEFAULT_GAS_URL
+      gas_configured: !!currentUrl, 
+      gas_valid: currentUrl ? currentUrl.includes("/exec") : false,
+      gas_preview: currentUrl ? `${currentUrl.substring(0, 25)}...${currentUrl.slice(-10)}` : "Belum diatur",
+      is_using_fallback: false,
+      manual_url: manualGasUrl
     });
+  });
+
+  app.post("/api/config/gas-url", (req, res) => {
+    const { url } = req.body;
+    manualGasUrl = (url || "").trim();
+    console.log("Manual GAS URL updated:", manualGasUrl ? "Set" : "Cleared");
+    res.json({ success: true, url: manualGasUrl });
   });
 
   // Broadcast to all clients
@@ -47,6 +53,7 @@ async function startServer() {
 
   // API Routes (Proxying to Google Sheets)
   app.get("/api/records", async (req, res) => {
+    const GAS_URL = getGasUrl();
     if (!GAS_URL) {
       return res.status(500).json({ error: "GAS_WEB_APP_URL belum dikonfigurasi di Environment Variables Vercel." });
     }
@@ -94,6 +101,7 @@ async function startServer() {
   });
 
   app.post("/api/records", async (req, res) => {
+    const GAS_URL = getGasUrl();
     if (!GAS_URL) return res.status(500).json({ error: "Google Sheets URL tidak dikonfigurasi" });
     try {
       console.log("Saving record to GAS...");
@@ -117,6 +125,7 @@ async function startServer() {
   });
 
   app.delete("/api/records/:id", async (req, res) => {
+    const GAS_URL = getGasUrl();
     if (!GAS_URL) return res.status(500).json({ error: "Google Sheets URL tidak dikonfigurasi" });
     try {
       // Kita kirim action delete ke GAS karena GAS tidak mendukung method DELETE secara native dengan mudah

@@ -84,7 +84,9 @@ export default function App() {
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   const [caregiverName, setCaregiverName] = useState(localStorage.getItem('caregiver_name') || '');
   const [showSyncInfo, setShowSyncInfo] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<{ configured: boolean; valid: boolean; preview?: string; isFallback?: boolean; version?: string }>({ configured: false, valid: false });
+  const [syncStatus, setSyncStatus] = useState<{ configured: boolean; valid: boolean; preview?: string; isFallback?: boolean; version?: string; manualUrl?: string }>({ configured: false, valid: false });
+  const [manualUrlInput, setManualUrlInput] = useState('');
+  const [isSavingUrl, setIsSavingUrl] = useState(false);
   const [formData, setFormData] = useState({
     spo2: '',
     pulse: '',
@@ -126,11 +128,36 @@ export default function App() {
           valid: data.gas_valid,
           preview: data.gas_preview,
           isFallback: data.is_using_fallback,
-          version: data.version
+          version: data.version,
+          manualUrl: data.manual_url
         });
+        if (data.manual_url && !manualUrlInput) {
+          setManualUrlInput(data.manual_url);
+        }
       }
     } catch (err) {
       console.error('Health check failed:', err);
+    }
+  };
+
+  const saveManualUrl = async () => {
+    setIsSavingUrl(true);
+    try {
+      const res = await fetch('/api/config/gas-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: manualUrlInput })
+      });
+      if (res.ok) {
+        await checkHealth();
+        await fetchRecords();
+        alert('URL berhasil disimpan!');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Gagal menyimpan URL');
+    } finally {
+      setIsSavingUrl(false);
     }
   };
 
@@ -560,18 +587,36 @@ export default function App() {
                 <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
                   <div className="flex justify-between items-start mb-2">
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-                      {syncStatus.isFallback ? "URL Cadangan (Default)" : "URL Terdeteksi di Server"}
+                      URL Terdeteksi di Server
                     </p>
                     <span className="text-[8px] text-slate-300 font-mono">v.{syncStatus.version || "unknown"}</span>
                   </div>
                   <code className="text-[10px] break-all bg-white p-2 rounded border block text-slate-600 font-mono">
                     {syncStatus.preview || "Tidak ada URL terdeteksi"}
                   </code>
-                  {syncStatus.isFallback && (
-                    <p className="mt-2 text-[10px] text-blue-500 font-bold italic">
-                      ℹ️ Menggunakan URL yang tertanam di kode karena belum ada setting di Vercel.
-                    </p>
-                  )}
+
+                  <div className="mt-6 pt-6 border-t border-slate-100">
+                    <p className="text-xs font-bold text-slate-900 mb-3">Input URL Manual</p>
+                    <div className="space-y-3">
+                      <input 
+                        type="text"
+                        value={manualUrlInput}
+                        onChange={(e) => setManualUrlInput(e.target.value)}
+                        placeholder="Tempel link /exec di sini..."
+                        className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                      />
+                      <button 
+                        onClick={saveManualUrl}
+                        disabled={isSavingUrl}
+                        className="w-full py-3 bg-blue-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-100 active:scale-95 transition-all disabled:opacity-50"
+                      >
+                        {isSavingUrl ? 'Menyimpan...' : 'Simpan & Hubungkan'}
+                      </button>
+                      <p className="text-[10px] text-slate-400 leading-relaxed">
+                        * Gunakan fitur ini jika Anda tidak ingin repot mengatur Environment Variables di Vercel. Link akan tersimpan selama sesi server aktif.
+                      </p>
+                    </div>
+                  </div>
                   {syncStatus.configured && !syncStatus.valid && (
                     <div className="mt-3 p-2 bg-rose-50 border border-rose-100 rounded-lg flex gap-2 items-start">
                       <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
