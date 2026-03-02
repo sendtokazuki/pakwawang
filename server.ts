@@ -4,28 +4,9 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { WebSocketServer, WebSocket } from "ws";
 import { createServer } from "http";
-import Database from "better-sqlite3";
 import "dotenv/config";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const db = new Database("config.db");
-
-// Initialize config table
-db.exec(`
-  CREATE TABLE IF NOT EXISTS config (
-    key TEXT PRIMARY KEY,
-    value TEXT
-  )
-`);
-
-const getConfig = (key: string) => {
-  const row = db.prepare("SELECT value FROM config WHERE key = ?").get(key) as { value: string } | undefined;
-  return row?.value;
-};
-
-const setConfig = (key: string, value: string) => {
-  db.prepare("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)").run(key, value);
-};
 
 async function startServer() {
   const app = express();
@@ -35,31 +16,26 @@ async function startServer() {
 
   app.use(express.json());
 
-  // Ambil dari database atau environment variables
-  const getGasUrl = () => getConfig("manual_gas_url") || (process.env.GAS_WEB_APP_URL || process.env.VITE_GAS_WEB_APP_URL || "").trim();
+  // Helper untuk mendapatkan GAS URL dari header atau env
+  const getGasUrl = (req: express.Request) => {
+    const headerUrl = req.headers['x-gas-url'];
+    if (headerUrl && typeof headerUrl === 'string' && headerUrl.trim()) {
+      return headerUrl.trim();
+    }
+    return (process.env.GAS_WEB_APP_URL || process.env.VITE_GAS_WEB_APP_URL || "").trim();
+  };
 
-  const BUILD_TIME = "2026-03-01 16:45"; // Versi dengan Persistence
+  const BUILD_TIME = "2026-03-01 16:50"; // Versi Stateless (Header Based)
 
   app.get("/api/health", (req, res) => {
-    const currentUrl = getGasUrl();
-    const manualUrl = getConfig("manual_gas_url") || "";
+    const currentUrl = getGasUrl(req);
     res.json({ 
       status: "ok", 
       version: BUILD_TIME,
       gas_configured: !!currentUrl, 
       gas_valid: currentUrl ? currentUrl.includes("/exec") : false,
-      gas_preview: currentUrl ? `${currentUrl.substring(0, 25)}...${currentUrl.slice(-10)}` : "Belum diatur",
-      is_using_fallback: false,
-      manual_url: manualUrl
+      gas_preview: currentUrl ? `${currentUrl.substring(0, 25)}...${currentUrl.slice(-10)}` : "Belum diatur"
     });
-  });
-
-  app.post("/api/config/gas-url", (req, res) => {
-    const { url } = req.body;
-    const trimmedUrl = (url || "").trim();
-    setConfig("manual_gas_url", trimmedUrl);
-    console.log("Manual GAS URL updated in DB:", trimmedUrl ? "Set" : "Cleared");
-    res.json({ success: true, url: trimmedUrl });
   });
 
   // Broadcast to all clients
@@ -73,9 +49,9 @@ async function startServer() {
 
   // API Routes (Proxying to Google Sheets)
   app.get("/api/records", async (req, res) => {
-    const GAS_URL = getGasUrl();
+    const GAS_URL = getGasUrl(req);
     if (!GAS_URL) {
-      return res.status(500).json({ error: "GAS_WEB_APP_URL belum dikonfigurasi di Environment Variables Vercel." });
+      return res.status(500).json({ error: "Google Sheets URL belum dikonfigurasi. Silakan masukkan di menu Status Sinkronisasi." });
     }
     
     if (GAS_URL.includes("/edit") || !GAS_URL.includes("/exec")) {
@@ -121,7 +97,7 @@ async function startServer() {
   });
 
   app.post("/api/records", async (req, res) => {
-    const GAS_URL = getGasUrl();
+    const GAS_URL = getGasUrl(req);
     if (!GAS_URL) return res.status(500).json({ error: "Google Sheets URL tidak dikonfigurasi" });
     try {
       console.log("Saving record to GAS...");
@@ -145,7 +121,7 @@ async function startServer() {
   });
 
   app.delete("/api/records/:id", async (req, res) => {
-    const GAS_URL = getGasUrl();
+    const GAS_URL = getGasUrl(req);
     if (!GAS_URL) return res.status(500).json({ error: "Google Sheets URL tidak dikonfigurasi" });
     try {
       // Kita kirim action delete ke GAS karena GAS tidak mendukung method DELETE secara native dengan mudah

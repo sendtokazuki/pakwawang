@@ -85,7 +85,7 @@ export default function App() {
   const [caregiverName, setCaregiverName] = useState(localStorage.getItem('caregiver_name') || '');
   const [showSyncInfo, setShowSyncInfo] = useState(false);
   const [syncStatus, setSyncStatus] = useState<{ configured: boolean; valid: boolean; preview?: string; isFallback?: boolean; version?: string; manualUrl?: string }>({ configured: false, valid: false });
-  const [manualUrlInput, setManualUrlInput] = useState('');
+  const [manualUrlInput, setManualUrlInput] = useState(localStorage.getItem('manual_gas_url') || '');
   const [isSavingUrl, setIsSavingUrl] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [formData, setFormData] = useState({
@@ -120,7 +120,10 @@ export default function App() {
 
   const checkHealth = async () => {
     try {
-      const res = await fetch(`/api/health?t=${Date.now()}`);
+      const gasUrl = localStorage.getItem('manual_gas_url') || '';
+      const res = await fetch(`/api/health?t=${Date.now()}`, {
+        headers: { 'x-gas-url': gasUrl }
+      });
       if (res.ok) {
         const data = await res.json();
         console.log('Sync Health Check:', data);
@@ -130,11 +133,8 @@ export default function App() {
           preview: data.gas_preview,
           isFallback: data.is_using_fallback,
           version: data.version,
-          manualUrl: data.manual_url
+          manualUrl: gasUrl // Use local value
         });
-        if (data.manual_url && !manualUrlInput) {
-          setManualUrlInput(data.manual_url);
-        }
       }
     } catch (err) {
       console.error('Health check failed:', err);
@@ -142,35 +142,28 @@ export default function App() {
   };
 
   const saveManualUrl = async () => {
-    if (!manualUrlInput.trim()) {
+    const trimmedUrl = manualUrlInput.trim();
+    if (!trimmedUrl) {
       alert('Silakan masukkan URL terlebih dahulu');
       return;
     }
     
     setIsSavingUrl(true);
     setSaveSuccess(false);
-    console.log('Saving manual URL:', manualUrlInput);
     
     try {
-      const res = await fetch('/api/config/gas-url', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: manualUrlInput.trim() })
-      });
+      // Simpan di localStorage (Client-side persistence)
+      localStorage.setItem('manual_gas_url', trimmedUrl);
       
-      if (res.ok) {
-        console.log('URL saved successfully');
-        await checkHealth();
-        await fetchRecords();
-        setSaveSuccess(true);
-        setTimeout(() => setSaveSuccess(false), 3000);
-      } else {
-        const errData = await res.json();
-        alert(`Gagal menyimpan: ${errData.error || 'Terjadi kesalahan'}`);
-      }
+      // Verifikasi dengan checkHealth
+      await checkHealth();
+      await fetchRecords();
+      
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
       console.error('Error saving URL:', err);
-      alert('Terjadi kesalahan koneksi saat menyimpan URL');
+      alert('Gagal memverifikasi URL');
     } finally {
       setIsSavingUrl(false);
     }
@@ -178,7 +171,10 @@ export default function App() {
 
   const fetchRecords = async () => {
     try {
-      const res = await fetch('/api/records');
+      const gasUrl = localStorage.getItem('manual_gas_url') || '';
+      const res = await fetch('/api/records', {
+        headers: { 'x-gas-url': gasUrl }
+      });
       let data;
       
       const contentType = res.headers.get("content-type");
@@ -229,9 +225,13 @@ export default function App() {
     localStorage.setItem('caregiver_name', caregiverName);
 
     try {
+      const gasUrl = localStorage.getItem('manual_gas_url') || '';
       const res = await fetch('/api/records', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-gas-url': gasUrl
+        },
         body: JSON.stringify({
           spo2: formData.spo2 ? parseInt(formData.spo2) : null,
           pulse: formData.pulse ? parseInt(formData.pulse) : null,
@@ -272,7 +272,11 @@ export default function App() {
   const deleteRecord = async (id: string) => {
     if (!confirm('Hapus catatan ini?')) return;
     try {
-      await fetch(`/api/records/${id}`, { method: 'DELETE' });
+      const gasUrl = localStorage.getItem('manual_gas_url') || '';
+      await fetch(`/api/records/${id}`, { 
+        method: 'DELETE',
+        headers: { 'x-gas-url': gasUrl }
+      });
       fetchRecords();
     } catch (err) {
       console.error(err);
