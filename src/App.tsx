@@ -84,7 +84,7 @@ export default function App() {
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   const [caregiverName, setCaregiverName] = useState(localStorage.getItem('caregiver_name') || '');
   const [showSyncInfo, setShowSyncInfo] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<{ configured: boolean; valid: boolean; preview?: string; isFallback?: boolean }>({ configured: false, valid: false });
+  const [syncStatus, setSyncStatus] = useState<{ configured: boolean; valid: boolean; preview?: string; isFallback?: boolean; version?: string }>({ configured: false, valid: false });
   const [formData, setFormData] = useState({
     spo2: '',
     pulse: '',
@@ -125,7 +125,8 @@ export default function App() {
           configured: data.gas_configured,
           valid: data.gas_valid,
           preview: data.gas_preview,
-          isFallback: data.is_using_fallback
+          isFallback: data.is_using_fallback,
+          version: data.version
         });
       }
     } catch (err) {
@@ -538,16 +539,31 @@ export default function App() {
             >
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-bold text-slate-900">Status Sinkronisasi</h2>
-                <button onClick={() => setShowSyncInfo(false)} className="p-2 hover:bg-slate-100 rounded-full">
-                  <Plus className="w-5 h-5 rotate-45 text-slate-400" />
-                </button>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => {
+                      setLoading(true);
+                      checkHealth().then(() => fetchRecords());
+                    }}
+                    className="p-2 hover:bg-blue-50 text-blue-600 rounded-full transition-colors"
+                    title="Refresh Status"
+                  >
+                    <Activity className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => setShowSyncInfo(false)} className="p-2 hover:bg-slate-100 rounded-full">
+                    <Plus className="w-5 h-5 rotate-45 text-slate-400" />
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-6">
                 <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
-                    {syncStatus.isFallback ? "URL Cadangan (Default)" : "URL Terdeteksi di Server"}
-                  </p>
+                  <div className="flex justify-between items-start mb-2">
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                      {syncStatus.isFallback ? "URL Cadangan (Default)" : "URL Terdeteksi di Server"}
+                    </p>
+                    <span className="text-[8px] text-slate-300 font-mono">v.{syncStatus.version || "unknown"}</span>
+                  </div>
                   <code className="text-[10px] break-all bg-white p-2 rounded border block text-slate-600 font-mono">
                     {syncStatus.preview || "Tidak ada URL terdeteksi"}
                   </code>

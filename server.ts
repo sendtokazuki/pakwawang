@@ -16,25 +16,23 @@ async function startServer() {
 
   app.use(express.json());
 
-  // URL Cadangan jika Environment Variable tidak diatur di Vercel
+  // URL Cadangan Permanen
   const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbyTB8FiRcuwgyiiKam-D7DayFsyqSy5gwqLN2iCPpSLmRXLSoM2tCevaRopdRYvUgfj/exec";
   
-  const envGasUrl = (process.env.GAS_WEB_APP_URL || process.env.VITE_GAS_WEB_APP_URL || "").trim();
-  const GAS_URL = envGasUrl || DEFAULT_GAS_URL;
+  // Ambil dari environment, jika kosong gunakan DEFAULT_GAS_URL
+  const rawEnvUrl = process.env.GAS_WEB_APP_URL || process.env.VITE_GAS_WEB_APP_URL || "";
+  const GAS_URL = rawEnvUrl.trim() || DEFAULT_GAS_URL;
 
-  console.log("GAS Configuration Status:");
-  console.log("- Environment URL:", envGasUrl ? "Detected" : "Not Detected");
-  console.log("- Final GAS URL:", GAS_URL.substring(0, 40) + "...");
+  const BUILD_TIME = "2026-03-01 11:35"; // Penanda versi terbaru
 
   app.get("/api/health", (req, res) => {
-    const isDefault = GAS_URL === DEFAULT_GAS_URL;
     res.json({ 
       status: "ok", 
-      mode: "Google Sheets Full",
-      gas_configured: true, // Always true now because of fallback
+      version: BUILD_TIME,
+      gas_configured: true, 
       gas_valid: GAS_URL.includes("/exec"),
       gas_preview: `${GAS_URL.substring(0, 25)}...${GAS_URL.slice(-10)}`,
-      is_using_fallback: isDefault
+      is_using_fallback: GAS_URL === DEFAULT_GAS_URL
     });
   });
 
