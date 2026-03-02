@@ -117,7 +117,7 @@ export default function App() {
 
   const checkHealth = async () => {
     try {
-      const res = await fetch('/api/health');
+      const res = await fetch(`/api/health?t=${Date.now()}`);
       if (res.ok) {
         const data = await res.json();
         console.log('Sync Health Check:', data);

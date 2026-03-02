@@ -23,7 +23,7 @@ async function startServer() {
   const rawEnvUrl = process.env.GAS_WEB_APP_URL || process.env.VITE_GAS_WEB_APP_URL || "";
   const GAS_URL = rawEnvUrl.trim() || DEFAULT_GAS_URL;
 
-  const BUILD_TIME = "2026-03-01 11:35"; // Penanda versi terbaru
+  const BUILD_TIME = "2026-03-01 16:15"; // Penanda versi terbaru - VERIFIKASI AKTIF
 
   app.get("/api/health", (req, res) => {
     res.json({ 
