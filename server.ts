@@ -19,24 +19,22 @@ async function startServer() {
   // URL Cadangan jika Environment Variable tidak diatur di Vercel
   const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbyTB8FiRcuwgyiiKam-D7DayFsyqSy5gwqLN2iCPpSLmRXLSoM2tCevaRopdRYvUgfj/exec";
   
-  let GAS_URL = (process.env.GAS_WEB_APP_URL || process.env.VITE_GAS_WEB_APP_URL || DEFAULT_GAS_URL).trim();
+  const envGasUrl = (process.env.GAS_WEB_APP_URL || process.env.VITE_GAS_WEB_APP_URL || "").trim();
+  const GAS_URL = envGasUrl || DEFAULT_GAS_URL;
 
-  if (!GAS_URL) {
-    console.error("CRITICAL: GAS_WEB_APP_URL is not set in environment variables.");
-  } else {
-    console.log("GAS URL Configured:", GAS_URL.substring(0, 30) + "...");
-    if (GAS_URL.includes("/edit")) {
-      console.error("CRITICAL: GAS_WEB_APP_URL looks like an editor URL (ends in /edit). It MUST be a Web App URL (ends in /exec).");
-    }
-  }
+  console.log("GAS Configuration Status:");
+  console.log("- Environment URL:", envGasUrl ? "Detected" : "Not Detected");
+  console.log("- Final GAS URL:", GAS_URL.substring(0, 40) + "...");
 
   app.get("/api/health", (req, res) => {
+    const isDefault = GAS_URL === DEFAULT_GAS_URL;
     res.json({ 
       status: "ok", 
       mode: "Google Sheets Full",
-      gas_configured: !!GAS_URL,
-      gas_valid: GAS_URL ? GAS_URL.includes("/exec") : false,
-      gas_preview: GAS_URL ? `${GAS_URL.substring(0, 20)}...${GAS_URL.slice(-10)}` : "none"
+      gas_configured: true, // Always true now because of fallback
+      gas_valid: GAS_URL.includes("/exec"),
+      gas_preview: `${GAS_URL.substring(0, 25)}...${GAS_URL.slice(-10)}`,
+      is_using_fallback: isDefault
     });
   });
 

@@ -84,7 +84,7 @@ export default function App() {
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   const [caregiverName, setCaregiverName] = useState(localStorage.getItem('caregiver_name') || '');
   const [showSyncInfo, setShowSyncInfo] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<{ configured: boolean; valid: boolean; preview?: string }>({ configured: false, valid: false });
+  const [syncStatus, setSyncStatus] = useState<{ configured: boolean; valid: boolean; preview?: string; isFallback?: boolean }>({ configured: false, valid: false });
   const [formData, setFormData] = useState({
     spo2: '',
     pulse: '',
@@ -120,10 +120,12 @@ export default function App() {
       const res = await fetch('/api/health');
       if (res.ok) {
         const data = await res.json();
+        console.log('Sync Health Check:', data);
         setSyncStatus({
           configured: data.gas_configured,
           valid: data.gas_valid,
-          preview: data.gas_preview
+          preview: data.gas_preview,
+          isFallback: data.is_using_fallback
         });
       }
     } catch (err) {
@@ -235,7 +237,6 @@ export default function App() {
   };
 
   const latest = records[0];
-  const isSyncConfigured = Boolean(import.meta.env.VITE_GAS_WEB_APP_URL);
   const chartData = [...records].reverse().slice(-10).map(r => ({
     time: format(parseISO(r.timestamp), 'dd/MM HH:mm'),
     spo2: r.spo2,
@@ -544,10 +545,17 @@ export default function App() {
 
               <div className="space-y-6">
                 <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">URL Terdeteksi di Server</p>
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
+                    {syncStatus.isFallback ? "URL Cadangan (Default)" : "URL Terdeteksi di Server"}
+                  </p>
                   <code className="text-[10px] break-all bg-white p-2 rounded border block text-slate-600 font-mono">
                     {syncStatus.preview || "Tidak ada URL terdeteksi"}
                   </code>
+                  {syncStatus.isFallback && (
+                    <p className="mt-2 text-[10px] text-blue-500 font-bold italic">
+                      ℹ️ Menggunakan URL yang tertanam di kode karena belum ada setting di Vercel.
+                    </p>
+                  )}
                   {syncStatus.configured && !syncStatus.valid && (
                     <div className="mt-3 p-2 bg-rose-50 border border-rose-100 rounded-lg flex gap-2 items-start">
                       <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
