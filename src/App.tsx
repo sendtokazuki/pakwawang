@@ -33,8 +33,22 @@ import { id } from 'date-fns/locale';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 import { HealthRecord } from './types';
+import { createClient } from '@supabase/supabase-js';
 
 type TimeFilter = 'all' | 'hour' | 'day' | 'week' | 'month';
+
+// Supabase Client Helper
+const getSupabaseClient = (manualUrl?: string, manualKey?: string) => {
+  const url = manualUrl || localStorage.getItem('supabase_url') || import.meta.env.VITE_SUPABASE_URL || "";
+  const key = manualKey || localStorage.getItem('supabase_key') || import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+  
+  if (!url || !key) return null;
+  try {
+    return createClient(url, key);
+  } catch (e) {
+    return null;
+  }
+};
 
 const MetricCard = ({ 
   title, 
@@ -83,7 +97,7 @@ export default function App() {
   const [showForm, setShowForm] = useState(false);
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   const [caregiverName, setCaregiverName] = useState(localStorage.getItem('caregiver_name') || '');
-  const [syncStatus, setSyncStatus] = useState({ configured: false, dbType: '', debug: null as any });
+  const [syncStatus, setSyncStatus] = useState({ configured: false, dbType: 'Supabase', debug: null as any });
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [manualKeys, setManualKeys] = useState({
     url: localStorage.getItem('supabase_url') || '',
@@ -91,56 +105,48 @@ export default function App() {
   });
 
   useEffect(() => {
-    checkHealth();
+    const client = getSupabaseClient();
+    setSyncStatus(prev => ({ 
+      ...prev, 
+      configured: !!client,
+      debug: { source: localStorage.getItem('supabase_url') ? 'Manual' : 'Vercel/Env' }
+    }));
+    
     fetchRecords();
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}`);
+    // Real-time updates via Supabase directly
+    const supabase = getSupabaseClient();
+    let subscription: any = null;
 
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === 'RECORD_ADDED' || data.type === 'RECORD_DELETED') {
-        fetchRecords();
-      }
+    if (supabase) {
+      subscription = supabase
+        .channel('public:health_records')
+        .on('postgres_changes', { event: '*', table: 'health_records', schema: 'public' }, () => {
+          fetchRecords();
+        })
+        .subscribe();
+    }
+
+    return () => {
+      if (subscription) subscription.unsubscribe();
     };
-
-    return () => ws.close();
   }, []);
 
-  const getHeaders = () => {
-    const headers: any = { 'Content-Type': 'application/json' };
-    if (manualKeys.url) headers['x-supabase-url'] = manualKeys.url;
-    if (manualKeys.key) headers['x-supabase-key'] = manualKeys.key;
-    return headers;
-  };
-
-  const checkHealth = async () => {
-    try {
-      const res = await fetch(`/api/health?t=${Date.now()}`, {
-        headers: getHeaders()
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setSyncStatus({
-          configured: data.supabase_configured,
-          dbType: data.db_type,
-          debug: data.debug
-        });
-      }
-    } catch (err) {
-      console.error('Health check failed:', err);
-    }
-  };
-
   const fetchRecords = async () => {
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
+
     try {
-      const res = await fetch('/api/records', {
-        headers: getHeaders()
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setRecords(data);
-      }
+      const { data, error } = await supabase
+        .from('health_records')
+        .select('*')
+        .order('timestamp', { ascending: false });
+
+      if (error) throw error;
+      setRecords(data || []);
     } catch (err) {
       console.error('Fetch error:', err);
     } finally {
@@ -150,13 +156,18 @@ export default function App() {
 
   const addRecord = async (e: React.FormEvent) => {
     e.preventDefault();
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      alert('Database belum terhubung');
+      return;
+    }
+
     localStorage.setItem('caregiver_name', caregiverName);
 
     try {
-      const res = await fetch('/api/records', {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify({
+      const { error } = await supabase
+        .from('health_records')
+        .insert([{
           spo2: formData.spo2 ? parseInt(formData.spo2) : null,
           pulse: formData.pulse ? parseInt(formData.pulse) : null,
           temperature: formData.temperature ? parseFloat(formData.temperature) : null,
@@ -167,41 +178,52 @@ export default function App() {
           notes: formData.notes,
           caregiver_name: caregiverName,
           timestamp: formData.timestamp || new Date().toISOString()
-        })
-      });
+        }]);
 
-      if (res.ok) {
-        setShowForm(false);
-        setFormData({
-          spo2: '', pulse: '', temperature: '', systolic: '', diastolic: '',
-          blood_sugar: '', medications: '', notes: '',
-          timestamp: format(new Date(), "yyyy-MM-dd'T'HH:mm")
-        });
-        fetchRecords();
-      }
-    } catch (err) {
-      alert('Gagal menyimpan data');
+      if (error) throw error;
+      
+      setShowForm(false);
+      setFormData({
+        spo2: '', pulse: '', temperature: '', systolic: '', diastolic: '',
+        blood_sugar: '', medications: '', notes: '',
+        timestamp: format(new Date(), "yyyy-MM-dd'T'HH:mm")
+      });
+      fetchRecords();
+    } catch (err: any) {
+      alert(`Gagal menyimpan: ${err.message}`);
     }
   };
 
   const deleteRecord = async (id: string) => {
     if (!confirm('Hapus catatan ini?')) return;
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+
     try {
-      await fetch(`/api/records/${id}`, { 
-        method: 'DELETE',
-        headers: getHeaders()
-      });
+      const { error } = await supabase
+        .from('health_records')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
       fetchRecords();
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      alert(`Gagal menghapus: ${err.message}`);
     }
   };
 
   const saveManualKeys = () => {
     localStorage.setItem('supabase_url', manualKeys.url);
     localStorage.setItem('supabase_key', manualKeys.key);
-    checkHealth().then(() => fetchRecords());
+    const client = getSupabaseClient(manualKeys.url, manualKeys.key);
+    setSyncStatus(prev => ({ 
+      ...prev, 
+      configured: !!client,
+      debug: { source: 'Manual' }
+    }));
+    fetchRecords();
     setShowSyncModal(false);
+    window.location.reload(); // Reload to re-init subscription
   };
 
   const filteredRecords = useMemo(() => {
