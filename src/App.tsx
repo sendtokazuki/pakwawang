@@ -83,17 +83,11 @@ export default function App() {
   const [showForm, setShowForm] = useState(false);
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   const [caregiverName, setCaregiverName] = useState(localStorage.getItem('caregiver_name') || '');
-  const [syncStatus, setSyncStatus] = useState({ configured: false, dbType: '' });
-  const [formData, setFormData] = useState({
-    spo2: '',
-    pulse: '',
-    temperature: '',
-    systolic: '',
-    diastolic: '',
-    blood_sugar: '',
-    medications: '',
-    notes: '',
-    timestamp: format(new Date(), "yyyy-MM-dd'T'HH:mm")
+  const [syncStatus, setSyncStatus] = useState({ configured: false, dbType: '', debug: null as any });
+  const [showSyncModal, setShowSyncModal] = useState(false);
+  const [manualKeys, setManualKeys] = useState({
+    url: localStorage.getItem('supabase_url') || '',
+    key: localStorage.getItem('supabase_key') || ''
   });
 
   useEffect(() => {
@@ -113,14 +107,24 @@ export default function App() {
     return () => ws.close();
   }, []);
 
+  const getHeaders = () => {
+    const headers: any = { 'Content-Type': 'application/json' };
+    if (manualKeys.url) headers['x-supabase-url'] = manualKeys.url;
+    if (manualKeys.key) headers['x-supabase-key'] = manualKeys.key;
+    return headers;
+  };
+
   const checkHealth = async () => {
     try {
-      const res = await fetch(`/api/health?t=${Date.now()}`);
+      const res = await fetch(`/api/health?t=${Date.now()}`, {
+        headers: getHeaders()
+      });
       if (res.ok) {
         const data = await res.json();
         setSyncStatus({
           configured: data.supabase_configured,
-          dbType: data.db_type
+          dbType: data.db_type,
+          debug: data.debug
         });
       }
     } catch (err) {
@@ -130,7 +134,9 @@ export default function App() {
 
   const fetchRecords = async () => {
     try {
-      const res = await fetch('/api/records');
+      const res = await fetch('/api/records', {
+        headers: getHeaders()
+      });
       if (res.ok) {
         const data = await res.json();
         setRecords(data);
@@ -149,7 +155,7 @@ export default function App() {
     try {
       const res = await fetch('/api/records', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getHeaders(),
         body: JSON.stringify({
           spo2: formData.spo2 ? parseInt(formData.spo2) : null,
           pulse: formData.pulse ? parseInt(formData.pulse) : null,
@@ -181,11 +187,21 @@ export default function App() {
   const deleteRecord = async (id: string) => {
     if (!confirm('Hapus catatan ini?')) return;
     try {
-      await fetch(`/api/records/${id}`, { method: 'DELETE' });
+      await fetch(`/api/records/${id}`, { 
+        method: 'DELETE',
+        headers: getHeaders()
+      });
       fetchRecords();
     } catch (err) {
       console.error(err);
     }
+  };
+
+  const saveManualKeys = () => {
+    localStorage.setItem('supabase_url', manualKeys.url);
+    localStorage.setItem('supabase_key', manualKeys.key);
+    checkHealth().then(() => fetchRecords());
+    setShowSyncModal(false);
   };
 
   const filteredRecords = useMemo(() => {
@@ -254,8 +270,9 @@ export default function App() {
 
       {/* Cloud Database Sync Indicator */}
       <div 
+        onClick={() => setShowSyncModal(true)}
         className={cn(
-          "mb-6 p-3 rounded-2xl border flex items-center justify-between transition-all",
+          "mb-6 p-3 rounded-2xl border flex items-center justify-between transition-all cursor-pointer hover:bg-slate-50",
           syncStatus.configured
             ? "bg-emerald-50 border-emerald-100 text-emerald-700" 
             : "bg-rose-50 border-rose-100 text-rose-700"
@@ -269,11 +286,99 @@ export default function App() {
           <span className="text-xs font-bold uppercase tracking-wider">
             {syncStatus.configured 
               ? `Cloud Database ${syncStatus.dbType} Aktif` 
-              : "Database Belum Terhubung"}
+              : "Database Belum Terhubung (Klik untuk Atur)"}
           </span>
         </div>
-        {syncStatus.configured ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+        <ChevronRight className="w-4 h-4 opacity-50" />
       </div>
+
+      {/* Manual Sync Modal */}
+      <AnimatePresence>
+        {showSyncModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowSyncModal(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative bg-white w-full max-w-md rounded-3xl p-6 shadow-2xl overflow-y-auto max-h-[90vh]"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-slate-900">Pengaturan Database</h2>
+                <button onClick={() => setShowSyncModal(false)} className="p-2 hover:bg-slate-100 rounded-full">
+                  <Plus className="w-5 h-5 rotate-45 text-slate-400" />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Status Saat Ini</p>
+                  <div className="space-y-1">
+                    <p className="text-sm">
+                      Konfigurasi: <span className={syncStatus.configured ? "text-emerald-600 font-bold" : "text-rose-600 font-bold"}>
+                        {syncStatus.configured ? "Terhubung" : "Belum Terhubung"}
+                      </span>
+                    </p>
+                    <p className="text-[10px] text-slate-500">Sumber: {syncStatus.debug?.source || "Unknown"}</p>
+                    {syncStatus.debug?.url_preview && (
+                      <p className="text-[10px] text-slate-500 font-mono">URL: {syncStatus.debug.url_preview}</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <p className="text-xs font-bold text-slate-900">Input Manual (Jika Vercel Error)</p>
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase">Supabase URL</label>
+                      <input 
+                        type="text" 
+                        value={manualKeys.url}
+                        onChange={(e) => setManualKeys({...manualKeys, url: e.target.value})}
+                        placeholder="https://xyz.supabase.co"
+                        className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase">Supabase Anon Key</label>
+                      <input 
+                        type="password" 
+                        value={manualKeys.key}
+                        onChange={(e) => setManualKeys({...manualKeys, key: e.target.value})}
+                        placeholder="Kunci anon yang panjang..."
+                        className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                      />
+                    </div>
+                    <button 
+                      onClick={saveManualKeys}
+                      className="w-full py-3 bg-blue-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-100 active:scale-95 transition-all"
+                    >
+                      Simpan & Hubungkan
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setManualKeys({ url: '', key: '' });
+                        localStorage.removeItem('supabase_url');
+                        localStorage.removeItem('supabase_key');
+                        checkHealth().then(() => fetchRecords());
+                      }}
+                      className="w-full py-2 text-slate-400 text-[10px] hover:text-slate-600 transition-colors"
+                    >
+                      Hapus Input Manual (Gunakan Vercel)
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Summary Grid */}
       <div className="grid grid-cols-2 gap-4 mb-8">

@@ -9,10 +9,26 @@ import "dotenv/config";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Initialize Supabase
-const supabaseUrl = process.env.SUPABASE_URL || "";
-const supabaseKey = process.env.SUPABASE_ANON_KEY || "";
-const supabase = createClient(supabaseUrl, supabaseKey);
+// Helper to get Supabase keys (Priority: Headers > Env)
+const getSupabaseConfig = (req: express.Request) => {
+  const headerUrl = req.headers['x-supabase-url'] as string;
+  const headerKey = req.headers['x-supabase-key'] as string;
+  
+  const url = (headerUrl && headerUrl.trim()) || process.env.SUPABASE_URL || "";
+  const key = (headerKey && headerKey.trim()) || process.env.SUPABASE_ANON_KEY || "";
+  
+  return { url, key };
+};
+
+const getSupabase = (req: express.Request) => {
+  const { url, key } = getSupabaseConfig(req);
+  
+  if (!url || !key) return null;
+  
+  // Create a new client per request if using headers to avoid stale closures
+  // or cache if using env vars
+  return createClient(url, key);
+};
 
 async function startServer() {
   const app = express();
@@ -22,14 +38,22 @@ async function startServer() {
 
   app.use(express.json());
 
-  const BUILD_TIME = "2026-03-01 17:55";
+  const BUILD_TIME = "2026-03-01 19:25";
 
   app.get("/api/health", (req, res) => {
+    const { url, key } = getSupabaseConfig(req);
+    
     res.json({ 
       status: "ok", 
       version: BUILD_TIME,
-      supabase_configured: !!supabaseUrl && !!supabaseKey,
-      db_type: "Supabase"
+      supabase_configured: !!url && !!key,
+      db_type: "Supabase",
+      debug: {
+        has_url: !!url,
+        has_key: !!key,
+        url_preview: url ? `${url.substring(0, 15)}...` : "missing",
+        source: req.headers['x-supabase-url'] ? "Manual (Header)" : "Vercel (Env)"
+      }
     });
   });
 
@@ -44,12 +68,13 @@ async function startServer() {
 
   // API Routes (Supabase)
   app.get("/api/records", async (req, res) => {
-    if (!supabaseUrl || !supabaseKey) {
-      return res.status(500).json({ error: "Supabase belum dikonfigurasi di Vercel." });
+    const client = getSupabase(req);
+    if (!client) {
+      return res.status(500).json({ error: "Supabase belum terhubung. Silakan atur URL dan Key." });
     }
 
     try {
-      const { data, error } = await supabase
+      const { data, error } = await client
         .from('health_records')
         .select('*')
         .order('timestamp', { ascending: false });
@@ -63,10 +88,11 @@ async function startServer() {
   });
 
   app.post("/api/records", async (req, res) => {
-    if (!supabaseUrl || !supabaseKey) return res.status(500).json({ error: "Supabase belum dikonfigurasi" });
+    const client = getSupabase(req);
+    if (!client) return res.status(500).json({ error: "Supabase belum terhubung" });
     
     try {
-      const { data, error } = await supabase
+      const { data, error } = await client
         .from('health_records')
         .insert([req.body])
         .select();
@@ -82,10 +108,11 @@ async function startServer() {
   });
 
   app.delete("/api/records/:id", async (req, res) => {
-    if (!supabaseUrl || !supabaseKey) return res.status(500).json({ error: "Supabase belum dikonfigurasi" });
+    const client = getSupabase(req);
+    if (!client) return res.status(500).json({ error: "Supabase belum terhubung" });
     
     try {
-      const { error } = await supabase
+      const { error } = await client
         .from('health_records')
         .delete()
         .eq('id', req.params.id);
