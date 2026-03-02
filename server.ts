@@ -4,9 +4,28 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { WebSocketServer, WebSocket } from "ws";
 import { createServer } from "http";
+import Database from "better-sqlite3";
 import "dotenv/config";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const db = new Database("config.db");
+
+// Initialize config table
+db.exec(`
+  CREATE TABLE IF NOT EXISTS config (
+    key TEXT PRIMARY KEY,
+    value TEXT
+  )
+`);
+
+const getConfig = (key: string) => {
+  const row = db.prepare("SELECT value FROM config WHERE key = ?").get(key) as { value: string } | undefined;
+  return row?.value;
+};
+
+const setConfig = (key: string, value: string) => {
+  db.prepare("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)").run(key, value);
+};
 
 async function startServer() {
   const app = express();
@@ -16,14 +35,14 @@ async function startServer() {
 
   app.use(express.json());
 
-  // Ambil dari environment variables sebagai default awal
-  let manualGasUrl = "";
-  const getGasUrl = () => manualGasUrl || (process.env.GAS_WEB_APP_URL || process.env.VITE_GAS_WEB_APP_URL || "").trim();
+  // Ambil dari database atau environment variables
+  const getGasUrl = () => getConfig("manual_gas_url") || (process.env.GAS_WEB_APP_URL || process.env.VITE_GAS_WEB_APP_URL || "").trim();
 
-  const BUILD_TIME = "2026-03-01 16:30"; // Versi dengan Input Manual
+  const BUILD_TIME = "2026-03-01 16:45"; // Versi dengan Persistence
 
   app.get("/api/health", (req, res) => {
     const currentUrl = getGasUrl();
+    const manualUrl = getConfig("manual_gas_url") || "";
     res.json({ 
       status: "ok", 
       version: BUILD_TIME,
@@ -31,15 +50,16 @@ async function startServer() {
       gas_valid: currentUrl ? currentUrl.includes("/exec") : false,
       gas_preview: currentUrl ? `${currentUrl.substring(0, 25)}...${currentUrl.slice(-10)}` : "Belum diatur",
       is_using_fallback: false,
-      manual_url: manualGasUrl
+      manual_url: manualUrl
     });
   });
 
   app.post("/api/config/gas-url", (req, res) => {
     const { url } = req.body;
-    manualGasUrl = (url || "").trim();
-    console.log("Manual GAS URL updated:", manualGasUrl ? "Set" : "Cleared");
-    res.json({ success: true, url: manualGasUrl });
+    const trimmedUrl = (url || "").trim();
+    setConfig("manual_gas_url", trimmedUrl);
+    console.log("Manual GAS URL updated in DB:", trimmedUrl ? "Set" : "Cleared");
+    res.json({ success: true, url: trimmedUrl });
   });
 
   // Broadcast to all clients

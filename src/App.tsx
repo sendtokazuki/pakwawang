@@ -87,6 +87,7 @@ export default function App() {
   const [syncStatus, setSyncStatus] = useState<{ configured: boolean; valid: boolean; preview?: string; isFallback?: boolean; version?: string; manualUrl?: string }>({ configured: false, valid: false });
   const [manualUrlInput, setManualUrlInput] = useState('');
   const [isSavingUrl, setIsSavingUrl] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const [formData, setFormData] = useState({
     spo2: '',
     pulse: '',
@@ -141,21 +142,35 @@ export default function App() {
   };
 
   const saveManualUrl = async () => {
+    if (!manualUrlInput.trim()) {
+      alert('Silakan masukkan URL terlebih dahulu');
+      return;
+    }
+    
     setIsSavingUrl(true);
+    setSaveSuccess(false);
+    console.log('Saving manual URL:', manualUrlInput);
+    
     try {
       const res = await fetch('/api/config/gas-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: manualUrlInput })
+        body: JSON.stringify({ url: manualUrlInput.trim() })
       });
+      
       if (res.ok) {
+        console.log('URL saved successfully');
         await checkHealth();
         await fetchRecords();
-        alert('URL berhasil disimpan!');
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 3000);
+      } else {
+        const errData = await res.json();
+        alert(`Gagal menyimpan: ${errData.error || 'Terjadi kesalahan'}`);
       }
     } catch (err) {
-      console.error(err);
-      alert('Gagal menyimpan URL');
+      console.error('Error saving URL:', err);
+      alert('Terjadi kesalahan koneksi saat menyimpan URL');
     } finally {
       setIsSavingUrl(false);
     }
@@ -608,9 +623,12 @@ export default function App() {
                       <button 
                         onClick={saveManualUrl}
                         disabled={isSavingUrl}
-                        className="w-full py-3 bg-blue-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-100 active:scale-95 transition-all disabled:opacity-50"
+                        className={cn(
+                          "w-full py-3 rounded-xl text-sm font-bold shadow-lg active:scale-95 transition-all disabled:opacity-50",
+                          saveSuccess ? "bg-emerald-600 text-white" : "bg-blue-600 text-white shadow-blue-100"
+                        )}
                       >
-                        {isSavingUrl ? 'Menyimpan...' : 'Simpan & Hubungkan'}
+                        {isSavingUrl ? 'Menyimpan...' : (saveSuccess ? '✓ Berhasil Tersambung!' : 'Simpan & Hubungkan')}
                       </button>
                       <p className="text-[10px] text-slate-400 leading-relaxed">
                         * Gunakan fitur ini jika Anda tidak ingin repot mengatur Environment Variables di Vercel. Link akan tersimpan selama sesi server aktif.
